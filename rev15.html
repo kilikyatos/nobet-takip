@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nöbet Takip Sistemi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .day-cell { min-height: 80px; display: flex; flex-direction: column; }
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        /* Touch friendly buttons */
+        button { touch-action: manipulation; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden text-sm">
+
+    <!-- Hata Modalı (Kırmızı, Kesin Engel) -->
+    <div id="errorModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-96 max-w-[90%] transform transition-all">
+            <div class="flex items-center gap-3 text-red-600 mb-4">
+                <span class="text-3xl">🚫</span>
+                <h3 class="text-lg font-bold">İşlem Engellendi</h3>
+            </div>
+            <p id="errorMessage" class="text-gray-700 mb-6 font-medium leading-relaxed"></p>
+            <div class="flex justify-end">
+                <button onclick="closeErrorModal()" class="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-6 rounded transition">Tamam</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Onay Modalı (Sarı, Uyarı/Aksiyon Onayı) -->
+    <div id="confirmModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 px-4">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-[450px] max-w-full transform transition-all">
+            <div class="flex items-center gap-3 text-amber-500 mb-4">
+                <span class="text-3xl">⚠️</span>
+                <h3 class="text-lg font-bold text-gray-800">Emin misiniz?</h3>
+            </div>
+            <div id="confirmMessage" class="text-gray-600 mb-6 font-medium leading-relaxed space-y-2"></div>
+            <div class="flex justify-end gap-3">
+                <button onclick="closeConfirmModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded transition">Vazgeç</button>
+                <button id="btnConfirmAction" class="bg-amber-500 hover:bg-amber-600 text-white font-medium py-2 px-6 rounded transition">Onayla</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Personel Düzenleme Modalı -->
+    <div id="editPersonModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-[350px] max-w-[90%] transform transition-all">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800">Personel Düzenle</h3>
+                <button onclick="closeEditPersonModal()" class="text-gray-400 hover:text-gray-700 font-bold text-xl">&times;</button>
+            </div>
+            <input type="hidden" id="editPersonId">
+            <div class="space-y-4 mb-6">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Ad Soyad</label>
+                    <input type="text" id="editPersonName" class="w-full border rounded p-2 outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Aylık Hedef Nöbet</label>
+                    <input type="number" id="editPersonTarget" min="1" class="w-full border rounded p-2 outline-none focus:border-blue-500">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button onclick="closeEditPersonModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded transition">İptal</button>
+                <button onclick="saveEditedPerson()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded transition">Kaydet</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gün Notu Ekleme Modalı -->
+    <div id="noteModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 px-4">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-[350px] max-w-full transform transition-all">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800" id="noteModalTitle">Güne Not Ekle</h3>
+                <button onclick="closeNoteModal()" class="text-gray-400 hover:text-gray-700 font-bold text-xl">&times;</button>
+            </div>
+            <input type="hidden" id="noteDate">
+            <div class="mb-6">
+                <label class="block text-xs font-semibold text-gray-600 mb-1">Takvimde Görünecek İsim / Not</label>
+                <input type="text" id="noteInput" class="w-full border rounded p-2 outline-none focus:border-blue-500" placeholder="Örn: Ayşe'nin Doğum Günü, Etkinlik vb.">
+                <p class="text-[10px] text-gray-500 mt-1">Bu not sadece ana ekranda görünür, PDF'e aktarılmaz.</p>
+            </div>
+            <div class="flex justify-end gap-3">
+                <button onclick="deleteNote()" class="bg-red-100 hover:bg-red-200 text-red-600 font-medium py-2 px-4 rounded transition">Sil</button>
+                <button onclick="saveNote()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded transition">Kaydet</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gün Seçimi Modalı (İstekler için) -->
+    <div id="multiDateModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-5 w-[350px] max-w-[90%]">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-gray-700">Günleri Seçin</h3>
+                <button onclick="closeMultiDateModal()" class="text-gray-400 hover:text-gray-700 font-bold text-lg">&times;</button>
+            </div>
+            <p class="text-xs text-gray-500 mb-3" id="multiDateMonthInfo"></p>
+            <div id="multiDateGrid" class="grid grid-cols-7 gap-1.5 mb-5">
+                <!-- Javascript ile günler buraya dolacak -->
+            </div>
+            <div class="flex justify-end gap-2">
+                <button onclick="closeMultiDateModal()" class="px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded transition">İptal</button>
+                <button onclick="confirmMultiDateSelection()" class="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded transition">Seçimi Tamamla</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Atama (Nöbet Yazma) Modalı -->
+    <div id="assignmentModal" class="fixed inset-0 bg-black bg-opacity-40 hidden items-center justify-center z-40">
+        <div class="bg-white rounded-lg shadow-2xl w-[400px] max-w-[95%] max-h-[80vh] flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-lg">
+                <h3 class="font-bold text-gray-800 flex items-center gap-2"><span id="assignDateTitle" class="text-blue-600"></span> Nöbet Atama</h3>
+                <button onclick="closeAssignmentModal()" class="text-gray-500 hover:text-gray-800 text-xl font-bold">&times;</button>
+            </div>
+            <div class="p-4 overflow-y-auto flex-1">
+                <div id="assignmentPersonnelList" class="space-y-2">
+                    <!-- Javascript ile liste buraya dolacak -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dışa Aktar (PDF) Modalı -->
+    <div id="exportModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-[350px] max-w-[90%]">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="font-bold text-gray-800 flex items-center gap-2">📄 PDF Dışa Aktar</h3>
+                <button onclick="closeExportModal()" class="text-gray-400 hover:text-gray-700 font-bold text-xl">&times;</button>
+            </div>
+            <p class="text-sm text-gray-600 mb-4">İndirmek istediğiniz rapor türünü seçin:</p>
+            <div class="space-y-3">
+                <button onclick="exportPDF('ozet')" class="w-full text-left p-3 rounded border border-gray-200 hover:border-green-500 hover:bg-green-50 transition">
+                    <div class="font-bold text-gray-800">Özet PDF</div>
+                    <div class="text-xs text-gray-500 mt-1">Sadece nöbet çizelgesi ve kişi bazlı toplam nöbet sayıları yer alır.</div>
+                </button>
+                <button onclick="exportPDF('detayli')" class="w-full text-left p-3 rounded border border-gray-200 hover:border-green-500 hover:bg-green-50 transition">
+                    <div class="font-bold text-gray-800">Detaylı PDF</div>
+                    <div class="text-xs text-gray-500 mt-1">Nöbet çizelgesi ve haftaiçi, perşembe, cuma, haftasonu gibi tüm ayrıntılı istatistikler yer alır.</div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Temizleme Seçenekleri Modalı -->
+    <div id="clearOptionsModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 px-4">
+        <div class="bg-white rounded-lg shadow-xl p-6 w-[400px] max-w-full transform transition-all">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800 flex items-center gap-2">🗑️ Temizleme Seçenekleri</h3>
+                <button onclick="closeClearOptionsModal()" class="text-gray-400 hover:text-gray-700 font-bold text-xl">&times;</button>
+            </div>
+            <p class="text-sm text-gray-600 mb-4">Lütfen yapmak istediğiniz işlemi seçin:</p>
+            <div class="space-y-3">
+                <button onclick="confirmClearMonth()" class="w-full text-left p-3 rounded border border-gray-200 hover:border-blue-500 hover:bg-blue-50 transition">
+                    <div class="font-bold text-blue-700">Sadece Bu Ayı Temizle</div>
+                    <div class="text-xs text-gray-500 mt-1">Ekranda görünen aya ait nöbetleri ve notları siler. Personel listesi kalır.</div>
+                </button>
+                <button onclick="confirmClearAll()" class="w-full text-left p-3 rounded border border-gray-200 hover:border-red-500 hover:bg-red-50 transition">
+                    <div class="font-bold text-red-600">Sistemi Tamamen Sıfırla</div>
+                    <div class="text-xs text-gray-500 mt-1">Personeller, geçmiş aylar, izinler ve notlar dahil HER ŞEYİ kalıcı olarak siler.</div>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Bildirimi -->
+    <div id="toast" class="fixed bottom-4 right-4 transform translate-y-20 opacity-0 transition-all duration-300 z-50 px-4 py-3 rounded shadow-lg text-white font-medium flex items-center gap-2"></div>
+
+    <!-- Üst Bar -->
+    <header class="bg-blue-700 text-white p-3 shadow-md flex justify-between items-center shrink-0 z-20 relative">
+        <div class="flex items-center gap-2">
+            <!-- Mobil Menü Butonu -->
+            <button onclick="toggleSidebar()" class="md:hidden p-1.5 hover:bg-blue-600 rounded transition">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+            <h1 class="text-lg font-bold flex items-center gap-2">🏥 Nöbet Takip</h1>
+        </div>
+        
+        <div class="flex items-center gap-2 sm:gap-4">
+            <button onclick="openExportModal()" class="hidden sm:flex items-center gap-1 bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded font-semibold transition text-xs shadow-sm">
+                📄 PDF İndir
+            </button>
+            <button onclick="openClearOptionsModal()" class="hidden sm:flex items-center gap-1 bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded font-semibold transition text-xs shadow-sm">
+                🗑️ Temizle
+            </button>
+            <div class="flex items-center gap-1 sm:gap-3 bg-blue-800 px-2 sm:px-3 py-1 rounded">
+                <button onclick="changeMonth(-1)" class="p-1 hover:bg-blue-600 rounded transition font-bold">&larr;</button>
+                <span id="currentMonthYear" class="font-semibold text-sm sm:text-base w-24 sm:w-32 text-center"></span>
+                <button onclick="changeMonth(1)" class="p-1 hover:bg-blue-600 rounded transition font-bold">&rarr;</button>
+            </div>
+        </div>
+    </header>
+    
+    <!-- Sadece mobilde görünen ekstra Temizle ve PDF Butonları -->
+    <div class="bg-blue-600 p-2 sm:hidden flex justify-center gap-2 shrink-0">
+         <button onclick="openExportModal()" class="flex-1 flex justify-center items-center gap-1 bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded font-semibold transition text-sm shadow-sm">
+            📄 PDF İndir
+        </button>
+         <button onclick="openClearOptionsModal()" class="flex-1 flex justify-center items-center gap-1 bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded font-semibold transition text-sm shadow-sm">
+            🗑️ Temizle
+        </button>
+    </div>
+
+    <!-- Mobil Sidebar Overlay -->
+    <div id="sidebarOverlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black bg-opacity-50 z-30 hidden md:hidden"></div>
+
+    <div class="flex flex-1 overflow-hidden relative">
+        
+        <!-- Sol Panel (Formlar ve Listeler) -->
+        <!-- Responsive classes: fixed ve absolute ile mobilde çekmece gibi açılır -->
+        <aside id="sidebar" class="w-80 bg-white border-r shadow-xl md:shadow-sm flex flex-col overflow-y-auto shrink-0 fixed inset-y-0 left-0 transform -translate-x-full md:relative md:translate-x-0 transition duration-200 ease-in-out z-40 h-full">
+            
+            <div class="p-3 bg-gray-100 flex justify-between items-center md:hidden border-b">
+                <span class="font-bold text-gray-700">Yönetim Paneli</span>
+                <button onclick="toggleSidebar()" class="text-gray-500 hover:text-red-500 text-2xl font-bold leading-none">&times;</button>
+            </div>
+
+            <!-- Personel Ekleme -->
+            <div class="p-4 border-b border-gray-100 bg-gray-50">
+                <h2 class="font-semibold text-gray-700 mb-2 flex items-center gap-1">👥 Personel Ekle</h2>
+                <div class="flex gap-2">
+                    <input type="text" id="personName" placeholder="Ad Soyad" class="w-full border rounded p-1.5 outline-none focus:border-blue-500">
+                    <input type="number" id="personTarget" placeholder="Hedef" class="w-20 border rounded p-1.5 outline-none focus:border-blue-500" min="1" title="Aylık Hedef Nöbet">
+                    <button onclick="addPerson()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 rounded transition font-medium">+</button>
+                </div>
+            </div>
+
+            <!-- İzin/Rapor Ekleme -->
+            <div class="p-4 border-b border-gray-100">
+                <h2 class="font-semibold text-gray-700 mb-2 flex items-center gap-1">🏖️ İzin / Rapor Ekle</h2>
+                <div class="space-y-2">
+                    <select id="leavePerson" class="w-full border rounded p-1.5 outline-none focus:border-blue-500"></select>
+                    <div class="flex gap-2">
+                        <select id="leaveType" class="w-1/3 border rounded p-1.5 outline-none focus:border-blue-500">
+                            <option value="izin">İzin</option>
+                            <option value="rapor">Rapor</option>
+                        </select>
+                        <input type="date" id="leaveStart" class="w-1/3 border rounded p-1.5 outline-none focus:border-blue-500 text-xs">
+                        <input type="date" id="leaveEnd" class="w-1/3 border rounded p-1.5 outline-none focus:border-blue-500 text-xs">
+                    </div>
+                    <button onclick="addLeave()" class="w-full bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 py-1.5 rounded transition font-medium">İzin Ekle</button>
+                </div>
+                <div id="leaveList" class="mt-3 space-y-1 text-xs text-gray-600"></div>
+            </div>
+
+            <!-- Nöbet İsteği Ekleme -->
+            <div class="p-4 border-b border-gray-100">
+                <h2 class="font-semibold text-gray-700 mb-2 flex items-center gap-1">📝 Nöbet İsteği Ekle</h2>
+                <div class="space-y-2">
+                    <select id="reqPerson" class="w-full border rounded p-1.5 outline-none focus:border-blue-500"></select>
+                    <select id="reqType" class="w-full border rounded p-1.5 outline-none focus:border-blue-500">
+                        <option value="wants">👍 İstiyor (Nöbet Yazılabilir)</option>
+                        <option value="does_not_want">👎 İstemiyor (Mazereti Var)</option>
+                    </select>
+                    <button onclick="openMultiDateModal()" class="w-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 py-1.5 rounded transition font-medium flex justify-center items-center gap-1">
+                        🗓️ Takvimden Gün Seç...
+                    </button>
+                </div>
+                <div id="requestList" class="mt-3 space-y-1 text-xs text-gray-600"></div>
+            </div>
+        </aside>
+
+        <!-- Sağ Panel (Takvim ve Tablo) -->
+        <main class="flex-1 flex flex-col bg-gray-50 min-w-0 overflow-hidden">
+            
+            <!-- Takvim Kısmı -->
+            <div class="p-2 sm:p-4 flex-1 flex flex-col min-h-0">
+                <div class="calendar-grid bg-white border border-gray-200 rounded-lg overflow-hidden flex-1 shadow-sm">
+                    <!-- Gün İsimleri -->
+                    <div class="bg-gray-100 font-semibold text-gray-600 p-1 sm:p-2 text-center border-b text-xs sm:text-sm">Pzt</div>
+                    <div class="bg-gray-100 font-semibold text-gray-600 p-1 sm:p-2 text-center border-b text-xs sm:text-sm">Sal</div>
+                    <div class="bg-gray-100 font-semibold text-gray-600 p-1 sm:p-2 text-center border-b text-xs sm:text-sm">Çar</div>
+                    <div class="bg-gray-100 font-semibold text-gray-600 p-1 sm:p-2 text-center border-b text-xs sm:text-sm">Per</div>
+                    <div class="bg-gray-100 font-semibold text-gray-600 p-1 sm:p-2 text-center border-b text-xs sm:text-sm">Cum</div>
+                    <div class="bg-red-50 font-semibold text-red-500 p-1 sm:p-2 text-center border-b text-xs sm:text-sm">Cmt</div>
+                    <div class="bg-red-50 font-semibold text-red-500 p-1 sm:p-2 text-center border-b text-xs sm:text-sm">Pzr</div>
+                    
+                    <!-- Takvim Hücreleri Buraya Gelecek -->
+                    <div id="calendarDays" class="contents"></div>
+                </div>
+            </div>
+
+            <!-- Tablo Kısmı -->
+            <div class="p-2 sm:p-4 h-56 sm:h-64 bg-white border-t border-gray-200 flex flex-col shrink-0">
+                <h2 class="font-semibold text-gray-700 mb-2 flex items-center gap-1">📊 Personel Durumu (Bu Ay)</h2>
+                <div class="overflow-y-auto overflow-x-auto flex-1 border border-gray-200 rounded">
+                    <table class="w-full text-left min-w-[500px]">
+                        <thead class="bg-gray-100 sticky top-0 shadow-sm z-10 text-gray-600 font-semibold text-xs sm:text-sm">
+                            <tr>
+                                <th class="p-2 border-b">İsim</th>
+                                <th class="p-2 border-b text-center" title="Pzt, Sal, Çar">H.İçi</th>
+                                <th class="p-2 border-b text-center text-blue-600" title="Perşembe">Per</th>
+                                <th class="p-2 border-b text-center text-indigo-600" title="Cuma">Cum</th>
+                                <th class="p-2 border-b text-center text-red-500" title="Haftasonu ve Tatiller">Özl</th>
+                                <th class="p-2 border-b text-center text-emerald-600">Top / Hdf</th>
+                                <th class="p-2 border-b text-center">İşlem</th>
+                            </tr>
+                        </thead>
+                        <tbody id="personnelTableBody" class="divide-y divide-gray-100 text-xs sm:text-sm">
+                            <!-- Tablo JS ile dolacak -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script>
+        // --- State (Uygulama Verileri) ---
+        let state = {
+            personnel: [],
+            shifts: {},     // Örn: "2026-07-20": [personId1, personId2]
+            leaves: [],     // Örn: { id, personId, type, start, end }
+            requests: [],   // Örn: { id, personId, type, year, month, days: [1, 5, 20] }
+            customNotes: {} // Örn: "2026-07-20": "Ali'nin Doğum Günü"
+        };
+
+        // --- Personel Renk Paleti ---
+        const colorPalette = [
+            { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' },
+            { bg: 'bg-emerald-100', text: 'text-emerald-800', border: 'border-emerald-200' },
+            { bg: 'bg-rose-100', text: 'text-rose-800', border: 'border-rose-200' },
+            { bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-200' },
+            { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200' },
+            { bg: 'bg-cyan-100', text: 'text-cyan-800', border: 'border-cyan-200' },
+            { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-200' },
+            { bg: 'bg-teal-100', text: 'text-teal-800', border: 'border-teal-200' },
+            { bg: 'bg-pink-100', text: 'text-pink-800', border: 'border-pink-200' },
+            { bg: 'bg-indigo-100', text: 'text-indigo-800', border: 'border-indigo-200' },
+            { bg: 'bg-lime-100', text: 'text-lime-800', border: 'border-lime-200' },
+            { bg: 'bg-fuchsia-100', text: 'text-fuchsia-800', border: 'border-fuchsia-200' },
+            { bg: 'bg-sky-100', text: 'text-sky-800', border: 'border-sky-200' }
+        ];
+
+        function assignColor(index) {
+            return colorPalette[index % colorPalette.length];
+        }
+
+        const monthNames = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+        let currentDate = new Date();
+        let currentMonth = currentDate.getMonth();
+        let currentYear = currentDate.getFullYear();
+
+        // Sabit Resmi Tatiller (Ay-Gün)
+        const HOLIDAYS = {
+            "01-01": "Yılbaşı", "04-23": "23 Nisan", "05-01": "1 Mayıs", 
+            "05-19": "19 Mayıs", "07-15": "15 Temmuz", "08-30": "30 Ağustos", "10-29": "29 Ekim"
+        };
+
+        // Atama modalı için geçici veriler
+        let activeAssignDate = null; 
+        let selectedMultiDates = [];
+
+        // --- Local Storage Entegrasyonu ---
+        function saveState() {
+            localStorage.setItem('nobetTakipState', JSON.stringify(state));
+            localStorage.setItem('nobetTakipMonth', currentMonth);
+            localStorage.setItem('nobetTakipYear', currentYear);
+        }
+
+        function loadState() {
+            const saved = localStorage.getItem('nobetTakipState');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    state.personnel = parsed.personnel || [];
+                    state.shifts = parsed.shifts || {};
+                    state.leaves = parsed.leaves || [];
+                    state.requests = parsed.requests || [];
+                    state.customNotes = parsed.customNotes || {};
+                    
+                    // Eski eklenen personellerde renk yoksa renk ata
+                    state.personnel.forEach((p, index) => {
+                        if (!p.color) {
+                            p.color = assignColor(index);
+                        }
+                    });
+                } catch(e) {
+                    console.error("Kayıtlı veri okunamadı", e);
+                }
+            }
+            
+            const savedMonth = localStorage.getItem('nobetTakipMonth');
+            const savedYear = localStorage.getItem('nobetTakipYear');
+            if (savedMonth !== null && savedYear !== null) {
+                currentMonth = parseInt(savedMonth);
+                currentYear = parseInt(savedYear);
+            }
+        }
+
+        // --- Mobil Arayüz Fonksiyonları ---
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            sidebar.classList.toggle('-translate-x-full');
+            
+            if (sidebar.classList.contains('-translate-x-full')) {
+                overlay.classList.add('hidden');
+            } else {
+                overlay.classList.remove('hidden');
+            }
+        }
+
+        // --- Araç ve Tarih Fonksiyonları ---
+        function formatDate(year, month, day) {
+            return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        }
+
+        function getDayGroup(dateStr) {
+            const mmdd = dateStr.substring(5);
+            if (HOLIDAYS[mmdd]) return 'ozel';
+            
+            const dayOfWeek = new Date(dateStr).getDay();
+            if (dayOfWeek === 6 || dayOfWeek === 0) return 'ozel'; // Cmt, Pzr
+            if (dayOfWeek === 5) return 'cuma';
+            if (dayOfWeek === 4) return 'persembe';
+            
+            return 'haftaici'; // Pzt(1), Sal(2), Çar(3)
+        }
+
+        function getDayDifference(dateStr1, dateStr2) {
+            const d1 = new Date(dateStr1);
+            const d2 = new Date(dateStr2);
+            const diffTime = Math.abs(d2 - d1);
+            return Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        }
+
+        function getPersonMonthStats(personId, year, month) {
+            let stats = { haftaici: 0, persembe: 0, cuma: 0, ozel: 0, total: 0 };
+            const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+            
+            Object.keys(state.shifts).forEach(dateStr => {
+                if (dateStr.startsWith(monthPrefix) && state.shifts[dateStr].includes(personId)) {
+                    stats[getDayGroup(dateStr)]++;
+                    stats.total++;
+                }
+            });
+            return stats;
+        }
+
+        // --- UI Modalları ve Bildirimler ---
+        function showToast(message, type="success") {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `fixed bottom-4 right-4 px-4 py-3 rounded shadow-lg text-white font-medium z-50 transform transition-all duration-300 ${type === 'success' ? 'bg-green-600' : 'bg-red-500'}`;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        function showErrorModal(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorModal').classList.remove('hidden');
+            document.getElementById('errorModal').classList.add('flex');
+        }
+        function closeErrorModal() {
+            document.getElementById('errorModal').classList.add('hidden');
+            document.getElementById('errorModal').classList.remove('flex');
+        }
+
+        let confirmActionCallback = null;
+        function showConfirmModal(messages, callback) {
+            const container = document.getElementById('confirmMessage');
+            container.innerHTML = messages.map(m => `<p>• ${m}</p>`).join('');
+            confirmActionCallback = callback;
+            document.getElementById('confirmModal').classList.remove('hidden');
+            document.getElementById('confirmModal').classList.add('flex');
+        }
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').classList.add('hidden');
+            document.getElementById('confirmModal').classList.remove('flex');
+            confirmActionCallback = null;
+        }
+        document.getElementById('btnConfirmAction').addEventListener('click', () => {
+            if (confirmActionCallback) confirmActionCallback();
+            closeConfirmModal();
+        });
+
+        // --- Gün Notu (Custom Note) Fonksiyonları ---
+        function openNoteModal(event, dateStr) {
+            event.stopPropagation(); // Takvim kutusuna tıklanıldığında atama modalının da açılmasını engeller
+            document.getElementById('noteDate').value = dateStr;
+            document.getElementById('noteInput').value = state.customNotes[dateStr] || '';
+            const dt = new Date(dateStr);
+            document.getElementById('noteModalTitle').textContent = `${dt.getDate()} ${monthNames[dt.getMonth()]} - Not Ekle`;
+            
+            document.getElementById('noteModal').classList.remove('hidden');
+            document.getElementById('noteModal').classList.add('flex');
+            
+            setTimeout(() => { document.getElementById('noteInput').focus(); }, 100);
+        }
+
+        function closeNoteModal() {
+            document.getElementById('noteModal').classList.add('hidden');
+            document.getElementById('noteModal').classList.remove('flex');
+        }
+
+        function saveNote() {
+            const dateStr = document.getElementById('noteDate').value;
+            const note = document.getElementById('noteInput').value.trim();
+            if (note) {
+                state.customNotes[dateStr] = note;
+            } else {
+                delete state.customNotes[dateStr];
+            }
+            saveState(); // Kaydet
+            closeNoteModal();
+            renderCalendar();
+            showToast("Gün notu kaydedildi.");
+        }
+
+        function deleteNote() {
+            const dateStr = document.getElementById('noteDate').value;
+            delete state.customNotes[dateStr];
+            saveState(); // Kaydet
+            closeNoteModal();
+            renderCalendar();
+            showToast("Gün notu silindi.");
+        }
+
+        // --- Personel Yönetimi (Ekle, Sil, Güncelle) ---
+        function addPerson() {
+            const nameInput = document.getElementById('personName');
+            const targetInput = document.getElementById('personTarget');
+            if (!nameInput.value.trim() || !targetInput.value) {
+                showToast("Ad ve hedef boş olamaz", "error"); return;
+            }
+            
+            const nextColorIndex = state.personnel.length;
+            const newPerson = { 
+                id: Date.now().toString(), 
+                name: nameInput.value.trim(), 
+                target: parseInt(targetInput.value),
+                color: assignColor(nextColorIndex)
+            };
+            state.personnel.push(newPerson);
+            
+            nameInput.value = ''; targetInput.value = '';
+            saveState(); // Kaydet
+            showToast("Personel eklendi");
+            updateSelects(); updatePersonnelTable();
+        }
+
+        function confirmDeletePerson(id) {
+            showConfirmModal(
+                ["Bu personeli silmek istediğinize emin misiniz?", "Kişiye ait tüm geçmiş atamalar, izinler ve istekler silinecektir!"],
+                () => executeDeletePerson(id)
+            );
+        }
+
+        function executeDeletePerson(id) {
+            // Personeli sil
+            state.personnel = state.personnel.filter(p => p.id !== id);
+            
+            // İzinleri sil
+            state.leaves = state.leaves.filter(l => l.personId !== id);
+            
+            // İstekleri sil
+            state.requests = state.requests.filter(r => r.personId !== id);
+            
+            // Atamaları sil
+            Object.keys(state.shifts).forEach(dateStr => {
+                state.shifts[dateStr] = state.shifts[dateStr].filter(pId => pId !== id);
+                // Eğer gün tamamen boşaldıysa diziyi temizlemek iyi olabilir, şimdilik dursun
+            });
+
+            saveState(); // Kaydet
+            showToast("Personel başarıyla silindi.", "success");
+            updateSelects(); updatePersonnelTable(); renderCalendar(); renderLists();
+        }
+
+        function openEditPersonModal(id) {
+            const person = state.personnel.find(p => p.id === id);
+            if(person) {
+                document.getElementById('editPersonId').value = person.id;
+                document.getElementById('editPersonName').value = person.name;
+                document.getElementById('editPersonTarget').value = person.target;
+                document.getElementById('editPersonModal').classList.remove('hidden');
+                document.getElementById('editPersonModal').classList.add('flex');
+            }
+        }
+
+        function closeEditPersonModal() {
+            document.getElementById('editPersonModal').classList.add('hidden');
+            document.getElementById('editPersonModal').classList.remove('flex');
+        }
+
+        function saveEditedPerson() {
+            const id = document.getElementById('editPersonId').value;
+            const name = document.getElementById('editPersonName').value.trim();
+            const target = parseInt(document.getElementById('editPersonTarget').value);
+
+            if (!name || !target) {
+                showToast("Ad ve hedef boş olamaz", "error"); return;
+            }
+
+            const index = state.personnel.findIndex(p => p.id === id);
+            if (index > -1) {
+                state.personnel[index].name = name;
+                state.personnel[index].target = target;
+                saveState(); // Kaydet
+                showToast("Personel bilgileri güncellendi.");
+                closeEditPersonModal();
+                updatePersonnelTable();
+                updateSelects(); // İsim değişmiş olabilir
+                renderCalendar(); // İsim değişmiş olabilir
+            }
+        }
+
+        // --- İzin ve İstek Yönetimi ---
+        document.getElementById('leaveStart').addEventListener('change', function() {
+            if(this.value) {
+                const endInput = document.getElementById('leaveEnd');
+                
+                // Bitiş tarihi başlangıç tarihinden önce olamaz, min değerini ata
+                endInput.min = this.value;
+                
+                // Bitiş tarihi boşsa veya başlangıçtan önceyse, başlangıç tarihiyle eşitle (takvimin o ayda açılması için)
+                if (!endInput.value || endInput.value < this.value) {
+                    endInput.value = this.value;
+                }
+                
+                endInput.focus();
+                try { 
+                    if (typeof endInput.showPicker === 'function') {
+                        endInput.showPicker(); 
+                    }
+                } catch(e) {
+                    console.log("Tarayıcı showPicker metodunu desteklemiyor.", e);
+                }
+            }
+        });
+
+        function addLeave() {
+            const personId = document.getElementById('leavePerson').value;
+            const start = document.getElementById('leaveStart').value;
+            const end = document.getElementById('leaveEnd').value;
+            const type = document.getElementById('leaveType').value;
+
+            if (!personId || !start || !end) {
+                showToast("Lütfen tüm alanları doldurun", "error"); return;
+            }
+            if (start > end) {
+                showToast("Bitiş tarihi başlangıçtan önce olamaz", "error"); return;
+            }
+
+            state.leaves.push({ id: Date.now().toString(), personId, type, start, end });
+            saveState(); // Kaydet
+            showToast("İzin/Rapor eklendi");
+            renderLists(); renderCalendar();
+        }
+
+        function removeLeaves(personId) {
+            state.leaves = state.leaves.filter(l => l.personId !== personId);
+            saveState(); // Kaydet
+            renderLists(); renderCalendar();
+        }
+
+        function openMultiDateModal() {
+            const personId = document.getElementById('reqPerson').value;
+            if (!personId) {
+                showToast("Önce personel seçmelisiniz!", "error"); return;
+            }
+            document.getElementById('multiDateMonthInfo').textContent = `${monthNames[currentMonth]} ${currentYear} için gün seçin:`;
+            selectedMultiDates = [];
+            
+            const grid = document.getElementById('multiDateGrid');
+            grid.innerHTML = '';
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            
+            for(let i=1; i<=daysInMonth; i++) {
+                const btn = document.createElement('button');
+                btn.textContent = i;
+                btn.className = "p-2 text-center rounded border border-gray-200 hover:bg-blue-50 text-gray-700 transition";
+                btn.onclick = () => toggleMultiDate(i, btn);
+                grid.appendChild(btn);
+            }
+            
+            document.getElementById('multiDateModal').classList.remove('hidden');
+            document.getElementById('multiDateModal').classList.add('flex');
+        }
+
+        function closeMultiDateModal() {
+            document.getElementById('multiDateModal').classList.add('hidden');
+            document.getElementById('multiDateModal').classList.remove('flex');
+        }
+
+        function toggleMultiDate(day, btnElement) {
+            const index = selectedMultiDates.indexOf(day);
+            if(index > -1) {
+                selectedMultiDates.splice(index, 1);
+                btnElement.classList.remove('bg-blue-500', 'text-white', 'border-blue-600');
+                btnElement.classList.add('text-gray-700', 'border-gray-200');
+            } else {
+                selectedMultiDates.push(day);
+                btnElement.classList.add('bg-blue-500', 'text-white', 'border-blue-600');
+                btnElement.classList.remove('text-gray-700', 'border-gray-200');
+            }
+        }
+
+        function confirmMultiDateSelection() {
+            if(selectedMultiDates.length === 0) {
+                showToast("Hiç gün seçmediniz.", "error"); return;
+            }
+            const personId = document.getElementById('reqPerson').value;
+            const type = document.getElementById('reqType').value;
+            
+            state.requests.push({
+                id: Date.now().toString(),
+                personId, type, year: currentYear, month: currentMonth,
+                days: [...selectedMultiDates].sort((a,b)=>a-b)
+            });
+            
+            saveState(); // Kaydet
+            closeMultiDateModal();
+            showToast("İstekler eklendi.");
+            renderLists(); renderCalendar();
+        }
+
+        function removeRequests(personId) {
+            state.requests = state.requests.filter(r => r.personId !== personId || r.month !== currentMonth || r.year !== currentYear);
+            saveState(); // Kaydet
+            renderLists(); renderCalendar();
+        }
+
+        // --- Atama (Shift) Yönetimi ve Validasyon ---
+        function validateAssignment(personId, dateStr) {
+            const errors = [];
+            const warnings = [];
+            
+            const person = state.personnel.find(p => p.id === personId);
+            const stats = getPersonMonthStats(personId, currentYear, currentMonth);
+            const group = getDayGroup(dateStr);
+
+            if (stats.total >= person.target) {
+                errors.push(`${person.name} adlı personelin aylık hedef nöbet sayısı (${person.target}) dolmuştur.`);
+            }
+
+            const targetDateObj = new Date(dateStr);
+            const prevDayStr = formatDate(targetDateObj.getFullYear(), targetDateObj.getMonth(), targetDateObj.getDate() - 1);
+            const nextDayStr = formatDate(targetDateObj.getFullYear(), targetDateObj.getMonth(), targetDateObj.getDate() + 1);
+            
+            if (state.shifts[prevDayStr] && state.shifts[prevDayStr].includes(personId)) {
+                errors.push("Personelin BİR ÖNCEKİ GÜN nöbeti var! Üst üste nöbet yazılamaz.");
+            }
+            if (state.shifts[nextDayStr] && state.shifts[nextDayStr].includes(personId)) {
+                errors.push("Personelin BİR SONRAKİ GÜN nöbeti var! Üst üste nöbet yazılamaz.");
+            }
+
+            state.leaves.forEach(l => {
+                if (l.personId === personId) {
+                    if (dateStr >= l.start && dateStr <= l.end) {
+                        errors.push("Personel bu tarihte izinli/raporlu.");
+                    } else {
+                        const diffStart = getDayDifference(dateStr, l.start);
+                        const diffEnd = getDayDifference(dateStr, l.end);
+                        if ( (dateStr < l.start && diffStart <= 2) || (dateStr > l.end && diffEnd <= 2) ) {
+                            warnings.push("Dikkat: Bu atama personelin iznine/raporuna 1-2 gün çok yakın!");
+                        }
+                    }
+                }
+            });
+
+            const hasConflictReq = state.requests.some(r => 
+                r.personId === personId && r.year === currentYear && r.month === currentMonth && 
+                r.type === 'does_not_want' && r.days.includes(targetDateObj.getDate())
+            );
+            if (hasConflictReq) {
+                warnings.push("Personel bu güne nöbet İSTEMEDİĞİNİ belirtmiş.");
+            }
+
+            if (group === 'persembe' && stats.persembe >= 1) {
+                warnings.push("Personelin bu ay 1 veya daha fazla PERŞEMBE nöbeti var.");
+            }
+            if (group === 'cuma' && stats.cuma >= 1) {
+                warnings.push("Personelin bu ay 1 veya daha fazla CUMA nöbeti var.");
+            }
+            if (group === 'ozel' && stats.ozel >= 1) {
+                warnings.push("Personelin bu ay zaten Hafta Sonu / Tatil nöbeti var.");
+            }
+
+            if (group === 'cuma' && stats.ozel >= 1) {
+                warnings.push("Personelin bu ay Hafta Sonu/Tatil nöbeti var. Üstüne CUMA yazıyorsunuz.");
+            }
+            if (group === 'ozel' && stats.cuma >= 1) {
+                warnings.push("Personelin bu ay CUMA nöbeti var. Üstüne Hafta Sonu/Tatil yazıyorsunuz.");
+            }
+
+            return { errors, warnings };
+        }
+
+        function openAssignmentModal(dateStr) {
+            if (state.personnel.length === 0) {
+                showToast("Lütfen önce personel ekleyin.", "error"); return;
+            }
+            activeAssignDate = dateStr;
+            const dt = new Date(dateStr);
+            document.getElementById('assignDateTitle').textContent = `${dt.getDate()} ${monthNames[dt.getMonth()]}`;
+            
+            renderAssignmentPersonnelList(dateStr);
+            
+            document.getElementById('assignmentModal').classList.remove('hidden');
+            document.getElementById('assignmentModal').classList.add('flex');
+        }
+
+        function closeAssignmentModal() {
+            document.getElementById('assignmentModal').classList.add('hidden');
+            document.getElementById('assignmentModal').classList.remove('flex');
+            activeAssignDate = null;
+        }
+
+        function renderAssignmentPersonnelList(dateStr) {
+            const list = document.getElementById('assignmentPersonnelList');
+            list.innerHTML = '';
+            
+            const currentDayNum = new Date(dateStr).getDate();
+            const currentAssigned = state.shifts[dateStr] || [];
+
+            state.personnel.forEach(p => {
+                const isAssigned = currentAssigned.includes(p.id);
+                const stats = getPersonMonthStats(p.id, currentYear, currentMonth);
+                
+                // YENİ ÖZELLİK: Eğer hedefini doldurmuşsa ve bu güne atanmamışsa LİSTELEME (GİZLE)
+                if (!isAssigned && stats.total >= p.target) {
+                    return; // skip this iteration
+                }
+
+                const isOnLeave = state.leaves.some(l => l.personId === p.id && dateStr >= l.start && dateStr <= l.end);
+                
+                let reqStatus = "";
+                state.requests.filter(r => r.personId === p.id && r.year === currentYear && r.month === currentMonth).forEach(r => {
+                    if (r.days.includes(currentDayNum)) {
+                        reqStatus = r.type === 'wants' ? '<span title="İstiyor" class="text-green-600 bg-green-50 px-1 rounded text-xs ml-1">👍 İstiyor</span>' : '<span title="İstemiyor" class="text-red-500 bg-red-50 px-1 rounded text-xs ml-1">👎 İstemiyor</span>';
+                    }
+                });
+
+                const div = document.createElement('div');
+                div.className = `flex justify-between items-center p-2 rounded border ${isOnLeave ? 'bg-gray-100 border-gray-200 opacity-60' : (isAssigned ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200 hover:bg-gray-50')}`;
+                
+                let actionButton = '';
+                if (isAssigned) {
+                    actionButton = `<button onclick="removeShift('${p.id}', '${dateStr}')" class="text-xs bg-red-100 text-red-600 hover:bg-red-200 px-3 py-1.5 rounded font-medium transition">Kaldır</button>`;
+                } else if (isOnLeave) {
+                    actionButton = `<span class="text-xs text-gray-500 font-medium px-2">İzinli/Raporlu</span>`;
+                } else {
+                    actionButton = `<button onclick="tryAssignShift('${p.id}', '${dateStr}')" class="text-xs bg-blue-600 text-white hover:bg-blue-700 px-4 py-1.5 rounded font-medium transition shadow-sm">Ata</button>`;
+                }
+
+                div.innerHTML = `
+                    <div>
+                        <div class="font-medium text-gray-700">${p.name} ${reqStatus}</div>
+                        <div class="text-xs text-gray-500">Aylık: ${stats.total}/${p.target}</div>
+                    </div>
+                    <div>${actionButton}</div>
+                `;
+                list.appendChild(div);
+            });
+            
+            // Eğer kimse listelenmediyse bilgilendirme göster
+            if (list.innerHTML === '') {
+                list.innerHTML = `<div class="p-4 text-center text-gray-500 italic">Müsait personel bulunamadı (Tüm personeller hedefine ulaşmış olabilir).</div>`;
+            }
+        }
+
+        function tryAssignShift(personId, dateStr) {
+            const { errors, warnings } = validateAssignment(personId, dateStr);
+
+            if (errors.length > 0) {
+                showErrorModal(errors[0]); 
+                return;
+            }
+
+            if (warnings.length > 0) {
+                showConfirmModal(warnings, () => {
+                    executeAssignShift(personId, dateStr);
+                });
+                return;
+            }
+
+            executeAssignShift(personId, dateStr);
+        }
+
+        function executeAssignShift(personId, dateStr, skipRender = false) {
+            if (!state.shifts[dateStr]) state.shifts[dateStr] = [];
+            state.shifts[dateStr].push(personId);
+            
+            saveState(); // Kaydet
+
+            if (!skipRender) {
+                showToast("Nöbet başarıyla atandı.");
+                closeAssignmentModal();
+                renderCalendar();
+                updatePersonnelTable();
+            }
+        }
+
+        function removeShift(personId, dateStr) {
+            if (state.shifts[dateStr]) {
+                state.shifts[dateStr] = state.shifts[dateStr].filter(id => id !== personId);
+                
+                saveState(); // Kaydet
+                showToast("Nöbet kaldırıldı.", "success");
+                
+                renderAssignmentPersonnelList(dateStr); 
+                renderCalendar(); 
+                updatePersonnelTable();
+            }
+        }
+
+        // --- Temizleme ve PDF Dışa Aktarma Modülü ---
+        function openClearOptionsModal() {
+            document.getElementById('clearOptionsModal').classList.remove('hidden');
+            document.getElementById('clearOptionsModal').classList.add('flex');
+        }
+
+        function closeClearOptionsModal() {
+            document.getElementById('clearOptionsModal').classList.add('hidden');
+            document.getElementById('clearOptionsModal').classList.remove('flex');
+        }
+
+        function confirmClearMonth() {
+            closeClearOptionsModal();
+            const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+            
+            // O aya ait nöbet veya not olup olmadığını kontrol et
+            const hasShifts = Object.keys(state.shifts).some(date => date.startsWith(monthPrefix));
+            const hasNotes = Object.keys(state.customNotes).some(date => date.startsWith(monthPrefix));
+
+            if (!hasShifts && !hasNotes) {
+                showToast("Bu ay için temizlenecek nöbet veya not bulunamadı.", "error"); return;
+            }
+            
+            showConfirmModal(
+                [
+                    `${monthNames[currentMonth]} ${currentYear} ayına ait TÜM nöbet atamaları ve gün notları silinecektir.`, 
+                    "Personeller, izinler ve istekler silinmez. Sadece takvimdeki atamalar ve notlar boşaltılır.",
+                    "Bu işlem geri alınamaz!"
+                ], 
+                clearMonthShifts
+            );
+        }
+
+        function clearMonthShifts() {
+            const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+            let deletedCount = 0;
+            
+            // O aya ait nöbetleri temizle
+            Object.keys(state.shifts).forEach(dateStr => {
+                if (dateStr.startsWith(monthPrefix)) {
+                    delete state.shifts[dateStr];
+                    deletedCount++;
+                }
+            });
+
+            // O aya ait notları temizle
+            Object.keys(state.customNotes).forEach(dateStr => {
+                if (dateStr.startsWith(monthPrefix)) {
+                    delete state.customNotes[dateStr];
+                    deletedCount++;
+                }
+            });
+
+            if(deletedCount > 0) {
+                saveState();
+                renderCalendar();
+                updatePersonnelTable();
+                showToast(`${monthNames[currentMonth]} ayındaki tüm atamalar ve notlar temizlendi.`, "success");
+            } else {
+                showToast("Bu aya ait silinecek veri bulunamadı.", "error");
+            }
+        }
+        
+        function confirmClearAll() {
+            closeClearOptionsModal();
+            showConfirmModal(
+                [
+                    "TÜM SİSTEM SIFIRLANACAKTIR!", 
+                    "Eklediğiniz personeller, tüm aylara ait nöbetler, izinler ve notlar KALICI olarak silinecektir.",
+                    "Bu işlem KESİNLİKLE geri alınamaz!"
+                ], 
+                clearAllData
+            );
+        }
+
+        function clearAllData() {
+            state = {
+                personnel: [],
+                shifts: {},
+                leaves: [],
+                requests: [],
+                customNotes: {}
+            };
+            saveState(); // Kaydet
+            renderCalendar();
+            updatePersonnelTable();
+            renderLists();
+            updateSelects();
+            showToast("Tüm sistem başarıyla sıfırlandı.", "success");
+        }
+
+        function openExportModal() {
+            if (state.personnel.length === 0) {
+                showToast("Dışa aktarılacak personel yok.", "error"); return;
+            }
+            document.getElementById('exportModal').classList.remove('hidden');
+            document.getElementById('exportModal').classList.add('flex');
+        }
+
+        function closeExportModal() {
+            document.getElementById('exportModal').classList.add('hidden');
+            document.getElementById('exportModal').classList.remove('flex');
+        }
+
+        function exportPDF(type) {
+            closeExportModal();
+            showToast("PDF hazırlanıyor, lütfen bekleyin...", "success");
+
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const monthName = monthNames[currentMonth];
+            
+            // PDF içine yerleştirilecek HTML içeriğini oluşturuyoruz (Daraltılmış ve Sıkıştırılmış Tasarım)
+            let htmlContent = `
+            <div style="font-family: Arial, sans-serif; color: #333; padding: 0px; line-height: 1.1;">
+                <h2 style="text-align: center; color: #1e3a8a; margin-top: 0; margin-bottom: 10px; font-size: 14px;">${monthName} ${currentYear} Nöbet Çizelgesi</h2>
+                
+                <!-- Nöbet Çizelgesi Tablosu -->
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 11px; text-align: left;">
+                    <thead>
+                        <tr style="background-color: #f3f4f6; border-bottom: 1px solid #cbd5e1;">
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0; width: 25%;">Tarih</th>
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0;">Nöbetçi Personeller</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = formatDate(currentYear, currentMonth, day);
+                const assigned = state.shifts[dateStr] || [];
+                const dayOfWeek = new Date(dateStr).getDay();
+                const dayNameStr = ["Pazar", "Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi"][dayOfWeek];
+
+                let namesHtml = assigned.map(id => {
+                    const p = state.personnel.find(p => p.id === id);
+                    return p ? p.name : '';
+                }).filter(Boolean).join(', ');
+
+                if (!namesHtml) namesHtml = '<span style="color: #94a3b8; font-style: italic;">Atanmadı</span>';
+
+                const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+                const bgStyle = isWeekend ? 'background-color: #fef2f2;' : '';
+
+                htmlContent += `
+                    <tr style="${bgStyle}">
+                        <td style="padding: 2px 4px; border: 1px solid #e2e8f0; font-weight: bold;">${day} ${monthName} (${dayNameStr})</td>
+                        <td style="padding: 2px 4px; border: 1px solid #e2e8f0;">${namesHtml}</td>
+                    </tr>
+                `;
+            }
+
+            htmlContent += `
+                    </tbody>
+                </table>
+                
+                <!-- Personel Durum Tablosu -->
+                <h3 style="color: #1e3a8a; margin-bottom: 6px; font-size: 12px; margin-top: 0;">Personel Durumu ${type === 'ozet' ? '(Özet)' : '(Detaylı)'}</h3>
+                <table style="width: 100%; border-collapse: collapse; font-size: 11px; text-align: left;">
+                    <thead>
+                        <tr style="background-color: #f3f4f6; border-bottom: 1px solid #cbd5e1;">
+            `;
+
+            if (type === 'ozet') {
+                // Sadece İsim ve Toplam Nöbet
+                htmlContent += `
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0;">İsim</th>
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0; text-align: center;">Aylık Toplam Nöbet</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                `;
+                state.personnel.forEach(p => {
+                    const stats = getPersonMonthStats(p.id, currentYear, currentMonth);
+                    htmlContent += `
+                        <tr>
+                            <td style="padding: 2px 4px; border: 1px solid #e2e8f0; font-weight: bold;">${p.name}</td>
+                            <td style="padding: 2px 4px; border: 1px solid #e2e8f0; text-align: center; color: #10b981; font-weight: bold;">${stats.total}</td>
+                        </tr>
+                    `;
+                });
+            } else {
+                // Detaylı Bilgiler
+                htmlContent += `
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0;">İsim</th>
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0; text-align: center;">Haftaiçi</th>
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0; text-align: center;">Perşembe</th>
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0; text-align: center;">Cuma</th>
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0; text-align: center;">Özel/H.Sonu</th>
+                            <th style="padding: 3px 4px; border: 1px solid #e2e8f0; text-align: center;">Toplam / Hedef</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                `;
+                state.personnel.forEach(p => {
+                    const stats = getPersonMonthStats(p.id, currentYear, currentMonth);
+                    htmlContent += `
+                        <tr>
+                            <td style="padding: 2px 4px; border: 1px solid #e2e8f0; font-weight: bold;">${p.name}</td>
+                            <td style="padding: 2px 4px; border: 1px solid #e2e8f0; text-align: center;">${stats.haftaici}</td>
+                            <td style="padding: 2px 4px; border: 1px solid #e2e8f0; text-align: center; color: #2563eb;">${stats.persembe}</td>
+                            <td style="padding: 2px 4px; border: 1px solid #e2e8f0; text-align: center; color: #4f46e5;">${stats.cuma}</td>
+                            <td style="padding: 2px 4px; border: 1px solid #e2e8f0; text-align: center; color: #ef4444;">${stats.ozel}</td>
+                            <td style="padding: 2px 4px; border: 1px solid #e2e8f0; text-align: center; color: #10b981; font-weight: bold;">${stats.total} / ${p.target}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            htmlContent += `
+                    </tbody>
+                </table>
+                <p style="font-size: 9px; color: #94a3b8; text-align: right; margin-top: 8px;">Nöbet Takip Sistemi tarafından üretilmiştir.</p>
+            </div>
+            `;
+
+            const opt = {
+                margin:       5, // PDF dış kenar boşluğunu 10'dan 5'e düşürdük
+                filename:     `Nobet_Listesi_${monthName}_${currentYear}_${type}.pdf`,
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            // HTML string'ini doğrudan html2pdf'e veriyoruz
+            html2pdf().set(opt).from(htmlContent).save().then(() => {
+                showToast("PDF başarıyla indirildi.", "success");
+            });
+        }
+
+
+        // --- Render (Ekrana Çizme) Fonksiyonları ---
+        function changeMonth(delta) {
+            currentMonth += delta;
+            if (currentMonth > 11) { currentMonth = 0; currentYear++; }
+            else if (currentMonth < 0) { currentMonth = 11; currentYear--; }
+            
+            localStorage.setItem('nobetTakipMonth', currentMonth);
+            localStorage.setItem('nobetTakipYear', currentYear);
+            
+            renderCalendar();
+            updatePersonnelTable();
+            renderLists();
+        }
+
+        function updateSelects() {
+            const leaveSel = document.getElementById('leavePerson');
+            const reqSel = document.getElementById('reqPerson');
+            leaveSel.innerHTML = reqSel.innerHTML = '<option value="">Personel Seçin...</option>';
+            
+            state.personnel.forEach(p => {
+                leaveSel.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+                reqSel.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+            });
+        }
+
+        function renderLists() {
+            const lList = document.getElementById('leaveList');
+            lList.innerHTML = '';
+            
+            const leavesByPerson = {};
+            state.leaves.forEach(l => {
+                if(!leavesByPerson[l.personId]) leavesByPerson[l.personId] = [];
+                const sDay = new Date(l.start).getDate();
+                const eDay = new Date(l.end).getDate();
+                leavesByPerson[l.personId].push(`${sDay}-${eDay} (${l.type})`);
+            });
+
+            for (const [pId, arr] of Object.entries(leavesByPerson)) {
+                const person = state.personnel.find(p=>p.id===pId);
+                if(person) {
+                    lList.innerHTML += `<div class="flex justify-between items-center bg-gray-50 p-1.5 rounded border border-gray-100">
+                        <span><b>${person.name}:</b> ${arr.join(', ')}</span>
+                        <button onclick="removeLeaves('${pId}')" class="text-red-500 hover:text-red-700 font-bold ml-2 text-lg leading-none" title="Temizle">&times;</button>
+                    </div>`;
+                }
+            }
+            if(lList.innerHTML==='') lList.innerHTML='<span class="text-gray-400 italic">Kayıt yok.</span>';
+
+            const rList = document.getElementById('requestList');
+            rList.innerHTML = '';
+            
+            state.requests.filter(r => r.year === currentYear && r.month === currentMonth).forEach(r => {
+                const person = state.personnel.find(p=>p.id===r.personId);
+                if(person) {
+                    const icon = r.type === 'wants' ? '👍' : '👎';
+                    rList.innerHTML += `<div class="flex justify-between items-center bg-gray-50 p-1.5 rounded border border-gray-100">
+                        <span><b>${person.name}:</b> ${r.days.join(',')} (${icon})</span>
+                        <button onclick="removeRequests('${r.personId}')" class="text-red-500 hover:text-red-700 font-bold ml-2 text-lg leading-none" title="Sil">&times;</button>
+                    </div>`;
+                }
+            });
+            if(rList.innerHTML==='') rList.innerHTML='<span class="text-gray-400 italic">Kayıt yok.</span>';
+        }
+
+        function renderCalendar() {
+            document.getElementById('currentMonthYear').textContent = `${monthNames[currentMonth]} ${currentYear}`;
+            const grid = document.getElementById('calendarDays');
+            grid.innerHTML = '';
+
+            const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+            const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+            const startOffset = firstDay === 0 ? 6 : firstDay - 1;
+
+            for (let i = 0; i < startOffset; i++) {
+                grid.innerHTML += `<div class="bg-gray-50 border-b border-r border-gray-100 opacity-50"></div>`;
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = formatDate(currentYear, currentMonth, day);
+                const assigned = state.shifts[dateStr] || [];
+                const mmdd = dateStr.substring(5);
+                const isHoliday = !!HOLIDAYS[mmdd];
+                const dayOfWeek = new Date(dateStr).getDay();
+                const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+                const customNote = state.customNotes[dateStr]; // Eklenen notu al
+                
+                let cellClass = "day-cell p-1 sm:p-1.5 border-b border-r border-gray-200 cursor-pointer hover:bg-blue-50 transition bg-white relative group";
+                if (isHoliday || isWeekend) cellClass = "day-cell p-1 sm:p-1.5 border-b border-r border-red-200 cursor-pointer hover:bg-red-50 transition bg-red-50/30 relative group";
+
+                let holidayTag = isHoliday ? `<div class="text-[9px] sm:text-[10px] font-bold text-red-500 mb-0.5 leading-tight">${HOLIDAYS[mmdd]}</div>` : '';
+                
+                // Not etiketini büyüttük, kalınlaştırdık ve tamamen büyük harf yaptık
+                let customNoteTag = customNote ? `<div class="text-xs text-gray-800 font-bold uppercase mt-0.5 mb-1 truncate border-b border-dashed border-gray-300 pb-0.5" title="${customNote}">${customNote}</div>` : '';
+
+                let namesHtml = assigned.map(id => {
+                    const p = state.personnel.find(p => p.id === id);
+                    if (p) {
+                        const col = p.color || assignColor(0); // Renk verisi varsa al, yoksa varsayılan ata
+                        return `<div class="text-[10px] sm:text-xs ${col.bg} ${col.text} rounded px-1 sm:px-1.5 py-0.5 mb-1 truncate shadow-sm font-medium border ${col.border}">${p.name}</div>`;
+                    }
+                    return '';
+                }).join('');
+
+                const div = document.createElement('div');
+                div.className = cellClass;
+                div.onclick = () => openAssignmentModal(dateStr);
+                div.innerHTML = `
+                    <div class="font-semibold text-gray-600 mb-1 flex justify-between items-start text-xs sm:text-sm">
+                        <span>${day}</span>
+                        <button onclick="openNoteModal(event, '${dateStr}')" class="text-gray-300 md:text-gray-400 hover:text-blue-600 hover:bg-blue-50 md:opacity-0 md:group-hover:opacity-100 p-1 -mt-0.5 -mr-0.5 rounded transition-all" title="Güne Not Ekle">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                        </button>
+                    </div>
+                    ${holidayTag}
+                    ${customNoteTag}
+                    <div class="flex-1 mt-1">${namesHtml}</div>
+                `;
+                grid.appendChild(div);
+            }
+        }
+
+        function updatePersonnelTable() {
+            const tbody = document.getElementById('personnelTableBody');
+            tbody.innerHTML = '';
+            
+            state.personnel.forEach(p => {
+                const stats = getPersonMonthStats(p.id, currentYear, currentMonth);
+                
+                const isWarning = stats.persembe > 1 || stats.cuma > 1 || stats.ozel > 1;
+                const nameStyle = isWarning ? "text-red-600 font-bold" : "text-gray-800 font-medium";
+                const warningIcon = isWarning ? `<span title="Dikkat: Limit aşımları var (Perşembe, Cuma veya Özel Gün > 1)" class="ml-1 cursor-help">⚠️</span>` : "";
+
+                const row = document.createElement('tr');
+                row.className = "hover:bg-blue-50 transition border-b border-gray-100 last:border-0";
+                row.innerHTML = `
+                    <td class="p-2 ${nameStyle} whitespace-nowrap">${p.name} ${warningIcon}</td>
+                    <td class="p-2 text-center text-gray-700">${stats.haftaici}</td>
+                    <td class="p-2 text-center font-medium text-blue-600">${stats.persembe}</td>
+                    <td class="p-2 text-center font-medium text-indigo-600">${stats.cuma}</td>
+                    <td class="p-2 text-center font-medium text-red-500">${stats.ozel}</td>
+                    <td class="p-2 text-center font-bold text-emerald-600">${stats.total} / ${p.target}</td>
+                    <td class="p-2 text-center">
+                        <div class="flex justify-center gap-1">
+                            <button onclick="openEditPersonModal('${p.id}')" class="text-blue-500 hover:text-blue-700 p-1" title="Düzenle">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                            </button>
+                            <button onclick="confirmDeletePerson('${p.id}')" class="text-red-500 hover:text-red-700 p-1" title="Sil">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            if (state.personnel.length === 0) {
+                 tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-gray-500 italic">Henüz personel eklenmedi.</td></tr>`;
+            }
+        }
+
+        // --- Başlangıç Yüklemesi ---
+        window.onload = () => {
+            loadState(); // Kayıtlı verileri çek
+            renderCalendar();
+            updateSelects();
+            renderLists();
+            updatePersonnelTable();
+        };
+
+    </script>
+</body>
+</html>
